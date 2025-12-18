@@ -177,26 +177,37 @@ def get_available_rooms():
     db = get_db()
     cursor = db.cursor()
     
-    # Base query
-    query = '''
-        SELECT r.*, h.name as hotel_name, h.location as hotel_location,
-               r.total_rooms - COALESCE(SUM(CASE 
-                   WHEN b.check_in_date <= ? AND b.check_out_date >= ?
-                   THEN b.num_rooms ELSE 0 END), 0) as available_rooms
-        FROM rooms r
-        JOIN hotels h ON r.hotel_id = h.id
-        LEFT JOIN bookings b ON r.id = b.room_id
-    '''
-    
-    params = []
+    # Build query based on whether dates are provided
     if check_in and check_out:
+        query = '''
+            SELECT r.*, h.name as hotel_name, h.location as hotel_location,
+                   r.total_rooms - COALESCE(SUM(CASE 
+                       WHEN b.check_in_date <= ? AND b.check_out_date >= ?
+                       THEN b.num_rooms ELSE 0 END), 0) as available_rooms
+            FROM rooms r
+            JOIN hotels h ON r.hotel_id = h.id
+            LEFT JOIN bookings b ON r.id = b.room_id
+        '''
         params = [check_out, check_in]
+    else:
+        # No dates provided, show all rooms with their total capacity
+        query = '''
+            SELECT r.*, h.name as hotel_name, h.location as hotel_location,
+                   r.total_rooms as available_rooms
+            FROM rooms r
+            JOIN hotels h ON r.hotel_id = h.id
+        '''
+        params = []
     
     if hotel_id:
-        query += ' WHERE r.hotel_id = ?'
+        if 'WHERE' not in query:
+            query += ' WHERE r.hotel_id = ?'
+        else:
+            query += ' AND r.hotel_id = ?'
         params.append(hotel_id)
     
-    query += ' GROUP BY r.id HAVING available_rooms > 0'
+    if check_in and check_out:
+        query += ' GROUP BY r.id HAVING available_rooms > 0'
     
     cursor.execute(query, params)
     rooms = [dict(row) for row in cursor.fetchall()]
